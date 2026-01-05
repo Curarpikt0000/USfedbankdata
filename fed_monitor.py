@@ -5,82 +5,70 @@ import io
 import time
 from datetime import datetime
 
-# 从 GitHub Secrets 安全读取
+# 获取环境变量
 NOTION_TOKEN = os.getenv("NOTION_TOKEN")
 DATABASE_ID = os.getenv("NOTION_DATABASE_ID")
 
 def fetch_and_push():
     print("-" * 50)
-    print(f"云端运行开始: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"云端运行强制修正版: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
-    # 明确指标 ID 和名称
-    series_map = {
-        'DPSACBW027SBOG': '01. 银行存款总额 (SA)',
-        'DPNSBW027SBOG': '02. 银行存款总额 (NSA)',
-        'DLCBW027SBOG':  '03. 大型银行 (SA)',
-        'DSCBW027SBOG':  '04. 小型银行 (SA)',
-        'DFXBW027SBOG':  '05. 外国银行 (SA)',
-        'WM2NS':         '06. M2 货币供应量 (NSA)'
-    }
+    # 直接定义完整的 URL，不使用任何拼接逻辑
+    tasks = [
+        {"id": "DPSACBW027SBOG", "name": "01. 银行存款总额 (SA)", "url": "https://fred.stlouisfed.org/series/DPSACBW027SBOG/downloaddata/DPSACBW027SBOG.csv"},
+        {"id": "DPNSBW027SBOG", "name": "02. 银行存款总额 (NSA)", "url": "https://fred.stlouisfed.org/series/DPNSBW027SBOG/downloaddata/DPNSBW027SBOG.csv"},
+        {"id": "DLCBW027SBOG",  "name": "03. 大型银行 (SA)", "url": "https://fred.stlouisfed.org/series/DLCBW027SBOG/downloaddata/DLCBW027SBOG.csv"},
+        {"id": "DSCBW027SBOG",  "name": "04. 小型银行 (SA)", "url": "https://fred.stlouisfed.org/series/DSCBW027SBOG/downloaddata/DSCBW027SBOG.csv"},
+        {"id": "DFXBW027SBOG",  "name": "05. 外国银行 (SA)", "url": "https://fred.stlouisfed.org/series/DFXBW027SBOG/downloaddata/DFXBW027SBOG.csv"},
+        {"id": "WM2NS",         "name": "06. M2 货币供应量 (NSA)", "url": "https://fred.stlouisfed.org/series/WM2NS/downloaddata/WM2NS.csv"}
+    ]
 
-    notion_headers = {
+    headers = {
         "Authorization": f"Bearer {NOTION_TOKEN}",
         "Content-Type": "application/json",
         "Notion-Version": "2022-06-28"
     }
 
-    # 模拟浏览器 User-Agent
-    browser_headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
+    # 简单的浏览器伪装
+    u_agent = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
 
-    for s_id, s_name in series_map.items():
-        print(f"正在处理: {s_name}...", end=" ")
+    for item in tasks:
+        print(f"正在抓取: {item['name']}...", end=" ")
         try:
-            # 纯净的 URL 构造，不再使用变量拼接，防止 Errno -3
-            target_url = f"https://fred.stlouisfed.org/series/{s_id}/downloaddata/{s_id}.csv"
+            # 1. 抓取 FRED 数据
+            resp = requests.get(item['url'], headers=u_agent, timeout=30)
+            if resp.status_code != 200:
+                print(f"❌ 下载失败 ({resp.status_code})")
+                continue
             
-            resp = requests.get(target_url, headers=browser_headers, timeout=30)
-            
-            if resp.status_code == 200:
-                df = pd.read_csv(io.StringIO(resp.text))
-                if df.empty or len(df) < 2:
-                    print("❌ 数据行数不足")
-                    continue
-                
-                # FRED CSV 的列名通常是 'DATE' 和 'VALUE'
-                latest_val = float(df.iloc[-1]['VALUE'])
-                prev_val = float(df.iloc[-2]['VALUE'])
-                change = latest_val - prev_val
-                data_date = str(df.iloc[-1]['DATE'])
+            # 2. 解析 CSV
+            df = pd.read_csv(io.StringIO(resp.text))
+            latest_val = float(df.iloc[-1]['VALUE'])
+            prev_val = float(df.iloc[-2]['VALUE'])
+            change = latest_val - prev_val
+            data_date = str(df.iloc[-1]['DATE'])
 
-                trend = "🟢 增加" if change > 0 else ("🔴 减少" if change < 0 else "⚪ 持平")
+            trend = "🟢 增加" if change > 0 else ("🔴 减少" if change < 0 else "⚪ 持平")
 
-                # 构造推送 Payload
-                payload = {
-                    "parent": {"database_id": DATABASE_ID},
-                    "properties": {
-                        "指标名称": {"title": [{"text": {"content": s_name}}]},
-                        "本周余额(十亿)": {"number": round(latest_val, 1)},
-                        "周变化量": {"number": round(change, 1)},
-                        "趋势": {"rich_text": [{"text": {"content": trend}}]},
-                        "更新日期": {"date": {"start": data_date}}
-                    }
+            # 3. 构造 Notion 数据包
+            payload = {
+                "parent": {"database_id": DATABASE_ID},
+                "properties": {
+                    "指标名称": {"title": [{"text": {"content": item['name']}}]},
+                    "本周余额(十亿)": {"number": round(latest_val, 1)},
+                    "周变化量": {"number": round(change, 1)},
+                    "趋势": {"rich_text": [{"text": {"content": trend}}]},
+                    "更新日期": {"date": {"start": data_date}}
                 }
-                
-                notion_resp = requests.post("https://api.notion.com/v1/pages", headers=notion_headers, json=payload, timeout=15)
-                
-                if notion_resp.status_code == 200:
-                    print("✅ 成功")
-                else:
-                    print(f"❌ Notion 报错: {notion_resp.status_code}")
-            else:
-                print(f"❌ FRED 下载失败: {resp.status_code}")
+            }
             
-            time.sleep(1) # 频率保护
+            r = requests.post("https://api.notion.com/v1/pages", headers=headers, json=payload, timeout=15)
+            print("✅ 成功" if r.status_code == 200 else f"❌ 推送失败 ({r.status_code})")
+            
+            time.sleep(1) # 防止请求过快
             
         except Exception as e:
-            print(f"❌ 运行异常: {e}")
+            print(f"❌ 运行报错: {e}")
 
     print("-" * 50)
     print("任务执行完毕！")
