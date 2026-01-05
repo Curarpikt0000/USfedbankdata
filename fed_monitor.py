@@ -1,11 +1,13 @@
 import os, requests, pandas as pd, io, time
 
 def fetch():
-    # 强制读取 Secrets
+    # --- 防伪标记：如果在日志里看不到这句话，说明代码没更新成功 ---
+    print("🚀 DEBUG: 正在运行 V2026 新版代码...")
+    
+    # 读取密钥
     tok = os.getenv("NOTION_TOKEN")
     dbid = os.getenv("NOTION_DATABASE_ID")
     
-    # 任务配置：指标名 与 绝对物理链接
     tasks = [
         ("01.总存款(SA)", "https://fred.stlouisfed.org/series/DPSACBW027SBOG/downloaddata/DPSACBW027SBOG.csv"),
         ("02.总存款(NSA)", "https://fred.stlouisfed.org/series/DPNSBW027SBOG/downloaddata/DPNSBW027SBOG.csv"),
@@ -18,9 +20,10 @@ def fetch():
     n_h = {"Authorization": f"Bearer {tok}", "Content-Type": "application/json", "Notion-Version": "2022-06-28"}
 
     for name, target_url in tasks:
-        print(f"Starting: {name}")
+        # 打印出正在请求的真实 URL，确保证据确凿
+        print(f"🔗 正在请求: {target_url}")
+        
         try:
-            # 这里的 target_url 是绝对字符串，不再经过任何拼接
             r = requests.get(target_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
             if r.status_code == 200:
                 df = pd.read_csv(io.StringIO(r.text))
@@ -38,12 +41,12 @@ def fetch():
                     }
                 }
                 res = requests.post("https://api.notion.com/v1/pages", headers=n_h, json=payload)
-                print(f"Success: {name} | Notion Status: {res.status_code}")
+                print(f"✅ 成功: {name} (状态码: {res.status_code})")
             else:
-                print(f"Failed to download {name}: {r.status_code}")
+                print(f"❌ 下载失败 {name}: {r.status_code}")
             time.sleep(1)
         except Exception as e:
-            print(f"Error on {name}: {e}")
+            print(f"❌ 严重报错 {name}: {e}")
 
 if __name__ == "__main__":
     fetch()
