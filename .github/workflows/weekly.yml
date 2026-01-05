@@ -1,0 +1,27 @@
+name: Weekly Bank Data Update
+
+on:
+  schedule:
+    # 设定运行时间：每周五 UTC 22:00 (北京时间周六 06:00)
+    - cron: '0 22 * * 5'
+  workflow_dispatch: # 允许手动点按钮运行
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      
+      - name: Install libraries
+        run: pip install pandas fredapi requests
+      
+      - name: Run Python script
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+        run: python weekly_update.py
